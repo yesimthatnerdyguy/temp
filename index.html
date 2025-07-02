@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Impressions</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
+    import {
+      getFirestore, collection, getDocs, getDoc, addDoc, doc, query, orderBy, where
+    } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
+    import {
+      getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAVKGcY0joaT9FHum_-MLNbIBaBpaaaNrw",
+      authDomain: "impressions-0.firebaseapp.com",
+      projectId: "impressions-0",
+      storageBucket: "impressions-0.appspot.com",
+      messagingSenderId: "219222079459",
+      appId: "1:219222079459:web:661c2d4ba50ec71d9612d6",
+      measurementId: "G-NW5702V4G1"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth();
+    const provider = new GoogleAuthProvider();
+
+    function showAuthButtons(user) {
+      const loginBtn = document.getElementById("loginBtn");
+      const logoutBtn = document.getElementById("logoutBtn");
+      if (user) {
+        loginBtn.style.display = "none";
+        logoutBtn.style.display = "inline-block";
+      } else {
+        loginBtn.style.display = "inline-block";
+        logoutBtn.style.display = "none";
+      }
+    }
+
+    async function loadNames() {
+      const nameList = document.getElementById("nameList");
+      nameList.innerHTML = "Loading...";
+      const q = query(collection(db, "people"), orderBy("name"));
+      const querySnapshot = await getDocs(q);
+
+      nameList.innerHTML = "";
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        const li = document.createElement("li");
+        const a = document.createElement("a");
+        a.href = `?person=${doc.id}`;
+        a.className = "text-blue-600 hover:underline";
+        a.innerText = data.name;
+        li.appendChild(a);
+        nameList.appendChild(li);
+      });
+    }
+
+    async function addPerson(name) {
+      try {
+        await addDoc(collection(db, "people"), { name });
+        alert("Person added successfully!");
+        loadNames();
+      } catch (error) {
+        console.error("Error adding person: ", error);
+      }
+    }
+
+    async function loadPersonPage(personId, currentUser) {
+      const container = document.getElementById("personPage");
+      const docRef = doc(db, "people", personId);
+      const personSnap = await getDoc(docRef);
+
+      if (!personSnap.exists()) {
+        container.innerHTML = `<p class='text-red-600'>Person not found.</p>`;
+        return;
+      }
+
+      const personName = personSnap.data().name;
+      container.innerHTML = `
+        <h2 class="text-2xl font-semibold mb-4">Impressions of ${personName}</h2>
+        <ul id="impressionList" class="space-y-2 mb-6"></ul>
+        ${currentUser ? `
+        <h3 class="text-xl font-medium mb-2">Leave an Impression</h3>
+        <textarea id="impressionText" class="w-full border p-2 mb-2" rows="3" placeholder="Type your impression here..."></textarea>
+        <input id="displayName" type="text" class="w-full border p-2 mb-2" placeholder="Your name (optional)" />
+        <button id="submitImpression" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Submit</button>
+        ` : `<p class='text-sm text-gray-500'>Please log in to leave an impression.</p>`}
+      `;
+
+      if (currentUser) {
+        document.getElementById("submitImpression").addEventListener("click", async () => {
+          const text = document.getElementById("impressionText").value.trim();
+          const name = document.getElementById("displayName").value.trim();
+          if (!text) return alert("Impression cannot be empty.");
+          await addDoc(collection(db, "impressions"), {
+            personId,
+            text,
+            name: name || "Anonymous",
+            approved: false,
+            createdAt: new Date(),
+            userId: currentUser.uid,
+            userEmail: currentUser.email
+          });
+          alert("Impression submitted for moderation.");
+          document.getElementById("impressionText").value = "";
+          document.getElementById("displayName").value = "";
+        });
+      }
+
+      loadImpressions(personId);
+    }
+
+    async function loadImpressions(personId) {
+      const list = document.getElementById("impressionList");
+      const q = query(collection(db, "impressions"), where("personId", "==", personId), where("approved", "==", true), orderBy("createdAt", "desc"));
+      const querySnapshot = await getDocs(q);
+      if (querySnapshot.empty) {
+        list.innerHTML = "<li class='text-gray-500'>No impressions yet.</li>";
+        return;
+      }
+      list.innerHTML = "";
+      querySnapshot.forEach(doc => {
+        const data = doc.data();
+        const li = document.createElement("li");
+        li.className = "border p-2 rounded";
+        li.innerHTML = `<p class="text-gray-800">${data.text}</p><p class="text-sm text-gray-500 text-right">– ${data.name}</p>`;
+        list.appendChild(li);
+      });
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      const loginBtn = document.getElementById("loginBtn");
+      const logoutBtn = document.getElementById("logoutBtn");
+
+      loginBtn.addEventListener("click", () => signInWithPopup(auth, provider));
+      logoutBtn.addEventListener("click", () => signOut(auth));
+
+      onAuthStateChanged(auth, (user) => {
+        showAuthButtons(user);
+        const urlParams = new URLSearchParams(window.location.search);
+        const personId = urlParams.get("person");
+        if (personId) {
+          document.getElementById("homePage").style.display = "none";
+          document.getElementById("personPage").style.display = "block";
+          loadPersonPage(personId, user);
+        } else {
+          document.getElementById("homePage").style.display = "block";
+          document.getElementById("personPage").style.display = "none";
+          loadNames();
+        }
+      });
+
+      document.getElementById("addPersonBtn").addEventListener("click", () => {
+        const newName = prompt("Enter the full name of the person:");
+        if (newName?.trim()) addPerson(newName.trim());
+      });
+    });
+  </script>
+</head>
+<body class="bg-white text-gray-800 font-sans">
+  <div class="max-w-3xl mx-auto px-4 py-8">
+    <!-- Header Buttons -->
+    <div class="flex justify-end mb-4 space-x-2">
+      <button id="loginBtn" class="bg-green-500 text-white px-4 py-1 rounded hover:bg-green-600">Log In</button>
+      <button id="logoutBtn" class="bg-red-500 text-white px-4 py-1 rounded hover:bg-red-600 hidden">Log Out</button>
+    </div>
+
+    <!-- Homepage -->
+    <div id="homePage">
+      <header class="text-center mb-6">
+        <h1 class="text-4xl font-bold">Impressions</h1>
+        <p class="text-lg text-gray-600 mt-2">Find out what people thought about you — and say what you never got to.</p>
+      </header>
+
+      <div class="mb-4">
+        <input
+          type="text"
+          placeholder="Search names..."
+          class="w-full p-2 border border-gray-300 rounded shadow-sm"
+          oninput="filterNames(this.value)"
+        />
+      </div>
+
+      <div class="mb-6">
+        <button
+          id="addPersonBtn"
+          class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+        >
+          + Add New Person
+        </button>
+      </div>
+
+      <ul id="nameList" class="space-y-2">
+        <li>Loading...</li>
+      </ul>
+
+      <footer class="mt-10 text-sm text-gray-500 border-t pt-4">
+        <p>All impressions are moderated to ensure respectful, non-toxic communication. Be honest, but kind. Your words can make someone’s day — or ruin it. Choose wisely.</p>
+      </footer>
+    </div>
+
+    <!-- Person Page -->
+    <div id="personPage" class="hidden"></div>
+  </div>
+
+  <script>
+    function filterNames(query) {
+      const list = document.getElementById("nameList");
+      const items = list.getElementsByTagName("li");
+      const lowercaseQuery = query.toLowerCase();
+
+      for (let item of items) {
+        const text = item.innerText.toLowerCase();
+        item.style.display = text.includes(lowercaseQuery) ? "list-item" : "none";
+      }
+    }
+  </script>
+</body>
+</html>
