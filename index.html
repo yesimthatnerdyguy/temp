@@ -11,7 +11,7 @@
       getFirestore, collection, getDocs, getDoc, addDoc, doc, query, orderBy, where
     } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
     import {
-      getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged
+      getAuth, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut, onAuthStateChanged
     } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js";
 
     const firebaseConfig = {
@@ -133,12 +133,18 @@
       });
     }
 
-    window.addEventListener("DOMContentLoaded", () => {
+    window.addEventListener("DOMContentLoaded", async () => {
       const loginBtn = document.getElementById("loginBtn");
       const logoutBtn = document.getElementById("logoutBtn");
 
-      loginBtn.addEventListener("click", () => signInWithPopup(auth, provider));
+      loginBtn.addEventListener("click", () => signInWithRedirect(auth, provider));
       logoutBtn.addEventListener("click", () => signOut(auth));
+
+      try {
+        await getRedirectResult(auth); // Finalizes login if redirected
+      } catch (error) {
+        console.error("Redirect login failed:", error);
+      }
 
       onAuthStateChanged(auth, (user) => {
         showAuthButtons(user);
